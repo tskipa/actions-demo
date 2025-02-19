@@ -1,0 +1,84 @@
+name: Deploy website
+on:
+  push:
+    branches:
+      - 'REL/**'
+jobs:
+  test:
+    name: Test
+    uses: ./.github/workflows/test.yml
+  extract-meta:
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      version: ${{ steps.meta.outputs.CURRENT_VERSION }}
+      tenant: ${{ steps.meta.outputs.TENANT }}
+      environment: ${{ steps.meta.outputs.ENVIRONMENT }}
+    steps:
+      - name: Get code
+        uses: actions/checkout@v3
+      - name: Get build meta info
+        id: meta
+        run: |
+          PACKAGE_JSON=$(cat package.json)
+          CURRENT_VERSION=$(echo $PACKAGE_JSON | jq -r '.version')
+          IFS='/' read -r -a BRANCH_PARTS <<< "${GITHUB_REF#refs/heads/}"
+          TENANT=${BRANCH_PARTS[1]}
+          ENVIRONMENT=${BRANCH_PARTS[2]}
+          echo "CURRENT_VERSION=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "TENANT=$TENANT" >> $GITHUB_OUTPUT
+          echo "ENVIRONMENT=$ENVIRONMENT" >> $GITHUB_OUTPUT
+  build:
+    runs-on: ubuntu-latest
+    needs: extract-meta
+    outputs:
+      script-file: ${{ steps.aza.outputs.uza }}
+    env:
+      CURRENT_VERSION: ${{ needs.extract-meta.outputs.version }}
+    steps:
+      - name: Get code
+        uses: actions/checkout@v3
+      - name: Install dependencies
+        run: npm ci
+      - name: Build website
+        run: npm run build
+      - name: Publish value
+        id: aza
+        run: find dist/assets/*.js -type f -execdir echo 'uza={}' >> $GITHUB_OUTPUT ';'
+      - name: Write info.txt
+        if: contains(github.ref, 'REL/')
+        run: |
+          INFO="Frontend Info:\nBranch: ${GITHUB_REF#refs/heads/}\nVersion: ${{ env.CURRENT_VERSION }}\nBuild Date: $(date)\nHash: $GITHUB_SHA"
+          echo -e $INFO > ./dist/info.txt
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-files
+          path: dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-files
+      - name: Output file name
+        run: echo ${{ needs.build.outputs.script-file }}
+      - name: Deploy
+        env:
+          DUMMY_TEXT: 'Some dummy text...'
+          TENANT: 'temo'
+          ENVIRONMENT: 'qa-a'
+        run: |
+          BUCKET="name/${{ env.TENANT }}"
+          if [[ ${{ env.TENANT }} == *"te"* || ${{ env.TENANT }} == *"prod"* ]]; then
+              BUCKET="$TENANT-cdn"
+          fi
+          CF_INSTANCE_MAP='${{vars.CF_INSTANCE_MAP}}'
+          echo "CF_INSTANCE_MAP:::: $CF_INSTANCE_MAP"
+          echo "prop:::: '.${{ env.TENANT }}'"
+          CF_INSTANCE_ID=$(echo $CF_INSTANCE_MAP | jq -r '.${{env.TENANT}}' | jq -r '."${{env.ENVIRONMENT}}"')
+          echo "Deploying to $CF_INSTANCE_ID"
+          echo "Bucket:::: $BUCKET"
+

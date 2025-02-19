@@ -1,0 +1,50 @@
+name: test
+on:
+  push:
+    branches:
+      - '**'
+      - '!REL/**'
+  workflow_call:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set start timestamp
+        id: start
+        run: |
+          printf 'timestamp=%(%s)T\n' >> "$GITHUB_OUTPUT"
+      - name: Get code
+        uses: actions/checkout@v3
+      - name: Cache deps
+        uses: actions/cache@v3
+        id: cache
+        with:
+          path: node_modules
+          key: deps-node-modules-${{hashFiles('**/package-lock.json')}}
+      - name: Install dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: npm ci
+      - name: Lint code
+        run: npm run lint
+      - name: Test code
+        run: npm run test
+  # get_workflow_run_data:
+  #   runs-on: ubuntu-latest
+  #   if: always()
+  #   steps:
+  #     - name: Get workflow run data
+  #       uses: ./.github/workflows/send_slack_msg.yml
+  #       with:
+  #         run_id: ${{ github.run_id }}
+  #       # run: |
+  #       #   echo ${{ steps.run_data.outputs.response }} > response.json
+  #     # - name: Send slack notification
+  #     #   run: |
+  #     #     WORKFLOW_DATA=$(cat response.json)
+  #     #     DATA=$(echo $WORKFLOW_DATA | jq -r '.workflow_runs')
+  #     #     echo $DATA
+  #     # - name: Set end timestamp
+  #     #   run: |
+  #     #     printf -v now '%(%s)T'
+  #     #     printf -v duration $((now - ${{ steps.start.outputs.timestamp }}))
+  #     #     echo  "Error: ${{ job.status }} on ${{ github.repository }} ${{ github.sha }} duration: $duration" 

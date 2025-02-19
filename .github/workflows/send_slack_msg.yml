@@ -1,0 +1,24 @@
+name: Send Slack message
+on:
+  workflow_call:
+    inputs:
+      run_id:
+        required: true
+        type: number
+jobs:
+  msg:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get workflow run data
+        id: run_data
+        run: |
+          echo url=$(https://api.github.com/repos/${{github.repository}}/actions/workflows/${{inputs.run_id}}/runs)
+          curl -L \
+          -o workspaces.json \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{github.token}}" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          $url \
+      - name: Print workflow run data
+        run: |
+          echo $(cat workspaces.json | jq -c '.')
